@@ -1,0 +1,145 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+// WIFI
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_SDA 25
+#define OLED_SCL 26
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// ULTRASONIC
+const int trigPin = 27;
+const int echoPin = 34;
+const int thresholdDistance = 10;
+
+// WEB SERVER
+WebServer server(80);
+
+bool coinDetected = false;
+
+void handleRoot() {
+  server.send(200, "text/plain", "Piggy Bank Online");
+}
+
+void handleCoin() {
+  String json = "{";
+  json += "\"deposit\":";
+  json += coinDetected ? "true" : "false";
+  json += "}";
+
+  server.send(200, "application/json", json);
+
+  coinDetected = false;
+}
+
+void connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Connecting WiFi...");
+  display.display();
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi Connected");
+  Serial.println(WiFi.localIP());
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("WiFi Connected");
+  display.println(WiFi.localIP());
+  display.display();
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  Wire.begin(OLED_SDA, OLED_SCL);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED Failed");
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+
+  connectWiFi();
+
+  if (MDNS.begin("piggybank")) {
+    Serial.println("mDNS started");
+  }
+
+  server.on("/", handleRoot);
+  server.on("/coin", handleCoin);
+  server.begin();
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Piggy Bank Ready");
+  display.println("piggybank.local");
+  display.display();
+}
+
+void loop() {
+  server.handleClient();
+
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH, 30000);
+
+  int distance = duration * 0.034 / 2;
+
+  Serial.print("Distance: ");
+  Serial.println(distance);
+
+  if (distance > 0 && distance < thresholdDistance) {
+
+    coinDetected = true;
+
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setCursor(5, 15);
+    display.println("MONEY");
+    display.setCursor(5, 40);
+    display.println("ADDED!");
+    display.display();
+
+    delay(1500);
+  } else {
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(10, 25);
+    display.println("Waiting for coin...");
+    display.display();
+  }
+
+  delay(100);
+}
